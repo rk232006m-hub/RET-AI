@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 require('dotenv').config();
 
 const db = require('./database');
@@ -10,8 +11,15 @@ const ai = require('./ai');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Serve static files from the React frontend build
-app.use(express.static(path.join(__dirname, '../frontend/dist')));
+// Serve static files dynamically based on available path configuration
+let distPath = path.join(__dirname, '../dist');
+if (fs.existsSync(path.join(__dirname, 'dist'))) {
+  distPath = path.join(__dirname, 'dist');
+} else if (fs.existsSync(path.join(__dirname, '../frontend/dist'))) {
+  distPath = path.join(__dirname, '../frontend/dist');
+}
+
+app.use(express.static(distPath));
 
 // Middleware
 app.use(cors());
@@ -363,7 +371,7 @@ app.get('/api/insights/report', auth.authenticateToken, async (req, res) => {
 
 // Fallback route to serve frontend index.html for SPA routing
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+  res.sendFile(path.join(distPath, 'index.html'));
 });
 
 // Start Server
