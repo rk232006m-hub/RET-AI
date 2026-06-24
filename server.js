@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 require('dotenv').config();
 
 const db = require('./database');
@@ -8,6 +9,9 @@ const ai = require('./ai');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Serve static files from the React frontend build
+app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
 // Middleware
 app.use(cors());
@@ -56,7 +60,6 @@ app.post('/api/expenses', auth.authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Amount, note, and date are required' });
     }
 
-    // Auto-suggest category via AI if category is not provided or set to 'auto'
     if (!category || category === 'auto' || category === '') {
       const aiResult = await ai.categorizeExpense(merchant_or_note, amount);
       category = aiResult.category || 'other';
@@ -79,7 +82,6 @@ app.post('/api/expenses', auth.authenticateToken, async (req, res) => {
   }
 });
 
-// Separate categorization helper endpoint
 app.post('/api/expenses/categorize', auth.authenticateToken, async (req, res) => {
   try {
     const { merchant_or_note, amount } = req.body;
@@ -172,13 +174,10 @@ app.delete('/api/goals/:id', auth.authenticateToken, async (req, res) => {
 app.post('/api/goals/advice', auth.authenticateToken, async (req, res) => {
   try {
     const { name, target_amount, target_date } = req.body;
-    
-    // Fetch average spending per category to pass to the advisor
     const expenses = await db.getExpenses(req.user.id);
     const user = await db.getUserById(req.user.id);
     const language = user ? user.preferred_language : 'English';
 
-    // Aggregate monthly averages
     const categoryTotals = {};
     expenses.forEach(e => {
       categoryTotals[e.category] = (categoryTotals[e.category] || 0) + e.amount;
@@ -186,7 +185,7 @@ app.post('/api/goals/advice', auth.authenticateToken, async (req, res) => {
 
     const categoryAverages = Object.keys(categoryTotals).map(cat => ({
       category: cat,
-      amount: categoryTotals[cat] / 3 // Approximate average
+      amount: categoryTotals[cat] / 3
     }));
 
     const advice = await ai.generateGoalSavingsAdvice(
@@ -209,11 +208,9 @@ app.get('/api/insights/trends', auth.authenticateToken, async (req, res) => {
     const user = await db.getUserById(req.user.id);
     const language = user ? user.preferred_language : 'English';
 
-    // Helper: Parse YYYY-MM-DD to YYYY-MM
     const getYearMonth = (dateStr) => dateStr.substring(0, 7);
 
-    // Group expenses by Month & Category
-    const monthlyData = {}; // { "2026-06": { food: 50, travel: 20 }, "2026-05": ... }
+    const monthlyData = {};
     const monthsSet = new Set();
     const categories = ['food', 'travel', 'shopping', 'bills', 'entertainment', 'health', 'education', 'other'];
 
@@ -231,14 +228,10 @@ app.get('/api/insights/trends', auth.authenticateToken, async (req, res) => {
       }
     });
 
-    // Sort months chronologically
     const sortedMonths = Array.from(monthsSet).sort();
-    
-    // Get current month based on system time (June 2026) or last month with data
     const today = new Date();
-    const currentYM = today.toISOString().substring(0, 7); // "2026-06"
+    const currentYM = today.toISOString().substring(0, 7);
     
-    // Find trailing 3 months relative to currentYM (e.g. 2026-05, 2026-04, 2026-03)
     const getTrailingMonths = (ymStr, count = 3) => {
       const list = [];
       let [year, month] = ymStr.split('-').map(Number);
@@ -256,10 +249,8 @@ app.get('/api/insights/trends', auth.authenticateToken, async (req, res) => {
 
     const trailingMonths = getTrailingMonths(currentYM, 3);
 
-    // Calculate current spending and 3-month average per category
     const trendComparison = categories.map(cat => {
       const currentVal = monthlyData[currentYM]?.[cat] || 0;
-      
       let sumAvg = 0;
       trailingMonths.forEach(m => {
         sumAvg += monthlyData[m]?.[cat] || 0;
@@ -273,16 +264,13 @@ app.get('/api/insights/trends', auth.authenticateToken, async (req, res) => {
       };
     });
 
-    // Write AI behavior trend summary
     const aiInsight = await ai.generateTrendInsights(trendComparison, language);
 
-    // Generate 6-month historical chart data (chronological)
-    // We take the last 6 months including current month
     const chartMonths = [];
     let [year, month] = currentYM.split('-').map(Number);
     for (let i = 0; i < 6; i++) {
       const mStr = month < 10 ? `0${month}` : `${month}`;
-      chartMonths.unshift(`${year}-${mStr}`); // Unshift to keep chronological order
+      chartMonths.unshift(`${year}-${mStr}`);
       month--;
       if (month === 0) {
         month = 12;
@@ -327,24 +315,18 @@ app.get('/api/insights/report', auth.authenticateToken, async (req, res) => {
     const budget = user.monthly_income || 0;
 
     const today = new Date();
-    const currentYM = today.toISOString().substring(0, 7); // "2026-06"
+    const currentYM = today.toISOString().substring(0, 7);
     
-    // Check if report is cached in database
     const cached = await db.getCachedReport(req.user.id, currentYM, language);
     if (cached) {
       return res.json({ report: cached.report_text, month: currentYM });
     }
 
-    // Let's gather the data to generate a new report
     const expenses = await db.getExpenses(req.user.id);
-    
-    // Helper: Parse YYYY-MM-DD to YYYY-MM
     const getYearMonth = (dateStr) => dateStr.substring(0, 7);
 
-    // Group expenses by Month & Category
     const currentMonthExpenses = expenses.filter(e => getYearMonth(e.date) === currentYM);
     
-    // Calculate last month YYYY-MM
     let [year, month] = currentYM.split('-').map(Number);
     month--;
     if (month === 0) {
@@ -354,11 +336,9 @@ app.get('/api/insights/report', auth.authenticateToken, async (req, res) => {
     const lastYM = `${year}-${month < 10 ? '0' + month : month}`;
     const lastMonthExpenses = expenses.filter(e => getYearMonth(e.date) === lastYM);
 
-    // Calculate totals
     const totalThisMonth = currentMonthExpenses.reduce((sum, e) => sum + e.amount, 0);
     const totalLastMonth = lastMonthExpenses.reduce((sum, e) => sum + e.amount, 0);
 
-    // Group by category for this month
     const categoryTotals = {};
     currentMonthExpenses.forEach(e => {
       categoryTotals[e.category] = (categoryTotals[e.category] || 0) + e.amount;
@@ -370,10 +350,8 @@ app.get('/api/insights/report', auth.authenticateToken, async (req, res) => {
       categories: categoryTotals
     };
 
-    // Call AI to generate monthly report in preferred language
     const reportText = await ai.generateMonthlyReport(reportData, budget, language);
 
-    // Cache the generated report in database
     await db.cacheReport(req.user.id, currentYM, reportText, language);
 
     res.json({ report: reportText, month: currentYM });
@@ -381,6 +359,11 @@ app.get('/api/insights/report', auth.authenticateToken, async (req, res) => {
     console.error('Report error:', error);
     res.status(500).json({ error: 'Failed to generate monthly report' });
   }
+});
+
+// Fallback route to serve frontend index.html for SPA routing
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
 });
 
 // Start Server
