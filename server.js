@@ -12,11 +12,13 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Serve static files dynamically based on available path configuration
-let distPath = path.join(__dirname, '../dist');
-if (fs.existsSync(path.join(__dirname, 'dist'))) {
-  distPath = path.join(__dirname, 'dist');
-} else if (fs.existsSync(path.join(__dirname, '../frontend/dist'))) {
-  distPath = path.join(__dirname, '../frontend/dist');
+let distPath = path.resolve(__dirname, 'dist');
+if (!fs.existsSync(path.join(distPath, 'index.html'))) {
+  if (fs.existsSync(path.resolve(__dirname, '../dist/index.html'))) {
+    distPath = path.resolve(__dirname, '../dist');
+  } else if (fs.existsSync(path.resolve(__dirname, '../frontend/dist/index.html'))) {
+    distPath = path.resolve(__dirname, '../frontend/dist');
+  }
 }
 
 app.use(express.static(distPath));
@@ -371,7 +373,7 @@ app.get('/api/insights/report', auth.authenticateToken, async (req, res) => {
 
 // Fallback route to serve frontend index.html for SPA routing
 app.get('*', (req, res) => {
-  res.sendFile(path.join(distPath, 'index.html'));
+  res.sendFile(path.resolve(distPath, 'index.html'));
 });
 
 // Start Server
